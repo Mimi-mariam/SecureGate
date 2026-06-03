@@ -1,26 +1,45 @@
+import { config } from "dotenv";
+// Load environment variables from .env at the project root
+config();
+
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 
-const connectionString = process.env.DATABASE_URL;
-
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-let prismaInstance: PrismaClient;
-
-if (process.env.NODE_ENV === "production") {
-  const pool = new Pool({ connectionString });
-  const adapter = new PrismaPg(pool);
-  prismaInstance = new PrismaClient({ adapter });
+// Debug: verify that DATABASE_URL is loaded
+if (process.env.DATABASE_URL) {
+  console.log("🟢 DATABASE_URL loaded");
 } else {
-  if (!globalForPrisma.prisma) {
-    const pool = new Pool({ connectionString });
-    const adapter = new PrismaPg(pool);
-    globalForPrisma.prisma = new PrismaClient({ adapter });
-  }
-  prismaInstance = globalForPrisma.prisma;
+  console.error("🔴 DATABASE_URL NOT FOUND");
 }
 
-export const db = prismaInstance;
+if (!process.env.DATABASE_URL) {
+  console.error("DATABASE_URL environment variable is not set.");
+  throw new Error("Database connection string missing");
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var prisma: PrismaClient | undefined;
+}
+
+let prisma: PrismaClient;
+
+try {
+  if (process.env.NODE_ENV === "production") {
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const adapter = new PrismaPg(pool);
+    prisma = new PrismaClient({ adapter });
+  } else {
+    // Use PrismaPg adapter also in development for consistency
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const adapter = new PrismaPg(pool);
+    prisma = globalThis.prisma ?? new PrismaClient({ adapter });
+    globalThis.prisma = prisma;
+  }
+} catch (initError) {
+  console.error("Failed to initialize PrismaClient:", initError);
+  throw initError;
+}
+
+export const db = prisma;
